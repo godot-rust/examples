@@ -1,0 +1,228 @@
+# Copyright (c) godot-rust; Bromeon and contributors.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+name: godot
+description: "Run Godot integration tests"
+
+inputs:
+  artifact-name:
+    required: true
+    description: "Name of the compiled Godot artifact to download"
+
+  godot-binary:
+    required: true
+    description: "Filename of the Godot executable"
+
+  godot-args:
+    required: false
+    default: ''
+    description: "Command-line arguments passed to Godot"
+
+  # Currently unused; could be removed entirely.
+  godot-check-header:
+    required: false
+    default: 'false'
+    description: "Should the job check against latest gdextension_interface.h, and warn on difference"
+
+  godot-prebuilt-patch:
+    required: false
+    default: ''
+    description: "If specified, sets the branch name of the godot4-prebuilt crate to this value"
+
+  rust-toolchain:
+    required: false
+    default: 'stable'
+    description: "Rust toolchain specifier (e.g. 'nightly')"
+
+  rust-extra-args:
+    required: false
+    default: ''
+    description: "Extra command line arguments for 'cargo build', e.g. features"
+
+  rust-env-rustflags:
+    required: false
+    default: ''
+    description: "Extra values for the RUSTFLAGS env var"
+
+  rust-target:
+    required: false
+    default: ''
+    description: "If provided, acts as an argument for '--target', and results in output files written to ./target/{target}"
+
+  rust-cache-key:
+    required: false
+    default: ''
+    description: "Extra key to resolve Rust cache"
+
+  with-llvm:
+    required: false
+    default: 'false'
+    description: "Set to 'true' if LLVM should be installed"
+
+
+runs:
+  using: "composite"
+  steps:
+    # Do not check out here, as this would overwrite (clean) the current directory and is already done by the parent workflow.
+
+    - name: "Install Godot"
+      uses: ./.github/composite/godot-install
+      with:
+        artifact-name: ${{ inputs.artifact-name }}
+        godot-binary: ${{ inputs.godot-binary }}
+
+    # The chmod seems still necessary, although applied before uploading artifact. Possibly modes are not preserved.
+    # The `| xargs` pattern trims the output, since printed version may contain extra newline, which causes problems in env vars.
+    - name: "Inspect Godot version"
+      run: |
+        godotVer=$($GODOT4_BIN --version | xargs)
+        gitSha=$(echo $godotVer | sed -E "s/.+custom_build\.//")
+        echo "GODOT_BUILT_FROM=_Built from [\`$godotVer\`](https://github.com/godotengine/godot/commit/$gitSha)._" >> $GITHUB_ENV
+      shell: bash
+
+    - name: "Install Rust"
+      uses: ./.github/composite/rust
+      with:
+        rust: ${{ inputs.rust-toolchain }}
+        with-llvm: ${{ inputs.with-llvm }}
+        cache-key: ${{ inputs.rust-cache-key }}
+
+    - name: "Patch prebuilt version ({{ inputs.godot-prebuilt-patch }})"
+      if: inputs.godot-prebuilt-patch != ''
+      env:
+        PATCHED_VERSION: ${{ inputs.godot-prebuilt-patch }}
+      # sed -i'' needed for macOS compatibility, see https://stackoverflow.com/q/4247068
+      run: |
+        # Specify `api-*` feature for godot crate if needed.
+        .github/other/patch-prebuilt.sh "$PATCHED_VERSION"
+        
+        # Reduce versions to "major.minor" format.
+        apiVersion=$(echo "$PATCHED_VERSION" | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')
+        apiDefaultVersion=$(echo "$defaultVersion" | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')
+        
+        # For newer versions, update 'compatibility_minimum' in .gdextension files to the respective version.
+        # Nothing needs to be done for 4.0.x, as compatibility_minimum didn't exist back then (we do it due to easier code, anyway).
+        if [[ "$apiVersion" == "$apiDefaultVersion" ]]; then
+          echo "Already has version $version; no need to change compatibility_minimum."
+      
+        else
+          echo "Update compatibility_minimum in .gdextension files to '$apiVersion'..."
+          dirs=("itest" "examples")
+        
+          # Note that this is still hardcoded to 4.1, the start of GDExtension's compatibility promise. This makes it easier for users
+          # to use gdext with older Godot versions. There is anyway a runtime check in gdext that checks compatibility again.
+          for dir in "${dirs[@]}"; do
+              find "$dir" -type f -name "*.gdextension" -exec sed -i'.bak' "s/compatibility_minimum = 4\.1/compatibility_minimum = $apiVersion/" {} +
+          done
+        
+          echo "Example output: itest/godot/itest.gdextension"
+          echo "----------------------------------------------------"
+          cat itest/godot/itest.gdextension
+          echo "----------------------------------------------------"
+        fi
+
+      shell: bash
+
+    # else
+    - name: "No patch selected"
+      if: inputs.godot-prebuilt-patch == ''
+      run: |
+          echo "No patch selected; use default godot4-prebuilt version."
+      shell: bash
+
+    - name: "Build gdext (itest)"
+      env:
+        RUSTFLAGS: ${{ inputs.rust-env-rustflags }}
+        TARGET: ${{ inputs.rust-target }}
+      run: |
+        targetArgs=""
+        if [[ -n "$TARGET" ]]; then
+          targetArgs="--target $TARGET"
+        fi
+        
+        cargo build -p itest --no-default-features ${{ inputs.rust-extra-args }} $targetArgs
+        
+        # Instead of modifying .gdextension, rename the output directory
+        if [[ -n "$TARGET" ]]; then
+          rm -rf target/debug
+          mv target/$TARGET/debug target
+        fi
+      shell: bash
+
+    - name: "Run Godot integration tests"
+      # Aborts immediately if Godot outputs certain keywords (would otherwise stall until CI runner times out).
+      # Explanation:
+      # * tee:      still output logs while scanning for errors
+      # * grep -q:  no output, use exit code 0 if found -> thus also &&
+      # * pkill:    stop Godot execution (since it hangs in headless mode); simple 'head -1' did not work as expected
+      # * exit:     the terminated process would return 143, but this is more explicit and future-proof
+      #
+      # --disallow-focus: fail if #[itest(focus)] is encountered, to prevent running only a few tests for full CI
+      run: |
+        cd itest/godot
+        echo "OUTCOME=itest" >> $GITHUB_ENV
+        $GODOT4_BIN --headless -- --disallow-focus ${{ inputs.godot-args }} 2>&1 \
+        | tee "${{ runner.temp }}/log.txt" \
+        | tee >(grep -E "SCRIPT ERROR:|Can't open dynamic library" -q && {
+        	printf "\n::error::godot-itest: unrecoverable Godot error, abort...\n";
+        	pkill godot
+            echo "OUTCOME=godot-runtime" >> $GITHUB_ENV
+        	exit 2
+        })
+        
+        echo "OUTCOME=success" >> $GITHUB_ENV
+      shell: bash
+
+    - name: "Check for memory leaks"
+      run: |
+        if grep -q "ObjectDB instances leaked at exit" "${{ runner.temp }}/log.txt"; then
+          echo "OUTCOME=godot-leak" >> $GITHUB_ENV
+          exit 3
+        fi
+      shell: bash
+
+    - name: "Conclusion"
+      if: always()
+      run: |
+        echo "Evaluate conclusion: $OUTCOME"
+        
+        case $OUTCOME in
+          "success")
+             # Do not output success for now, to keep summary focused on warnings/errors
+             #echo "### :heavy_check_mark: Godot integration tests passed" > $GITHUB_STEP_SUMMARY
+             #echo "$GODOT_BUILT_FROM" >> $GITHUB_STEP_SUMMARY
+            ;;
+        
+          "godot-runtime")
+            echo "### :x: Godot runtime error" > $GITHUB_STEP_SUMMARY
+            echo "$GODOT_BUILT_FROM" >> $GITHUB_STEP_SUMMARY
+        	echo "Aborted due to an error during Godot execution." >> $GITHUB_STEP_SUMMARY
+            exit 2
+            ;;
+        
+          "godot-leak")
+            echo "### :x: Memory leak" > $GITHUB_STEP_SUMMARY
+            echo "$GODOT_BUILT_FROM" >> $GITHUB_STEP_SUMMARY
+        	echo "Integration tests cause memory leaks." >> $GITHUB_STEP_SUMMARY
+            exit 3
+            ;;
+        
+          "itest")
+            echo "### :x: Godot integration tests failed" > $GITHUB_STEP_SUMMARY
+            echo "$GODOT_BUILT_FROM" >> $GITHUB_STEP_SUMMARY
+            exit 4
+            ;;
+        
+          "header-diff")
+            # already written
+            ;;
+
+          *)
+            echo "### :x: Unknown error occurred" > $GITHUB_STEP_SUMMARY
+            echo "$GODOT_BUILT_FROM" >> $GITHUB_STEP_SUMMARY
+            exit 5
+            ;;
+        esac
+      shell: bash

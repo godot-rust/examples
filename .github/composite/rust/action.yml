@@ -1,0 +1,101 @@
+# Copyright (c) godot-rust; Bromeon and contributors.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+name: rust
+description: "Install Rust toolchain, with caching"
+
+inputs:
+  rust:
+    required: false
+    description: "Rust toolchain, e.g. 'stable' or 'nightly'"
+    default: stable
+
+  components:
+    required: false
+    description: "Components array"
+    default: ''
+
+  cache-key:
+    required: false
+    description: "Extra key to resolve cache"
+    default: ''
+
+  with-llvm:
+    required: false
+    description: "Set to 'true' if LLVM should be installed"
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Configure"
+      id: configure
+      env:
+        CS: ${{ inputs.components }}
+      # TODO use actual Rust version, e.g. 1.78 in cache, not just "stable"
+      run: |
+        echo "Rust cache shared-key: '${{ runner.os }}-${{ inputs.rust }}${{ inputs.cache-key }}'"
+        echo "components=$( for c in ${CS//,/ }; do echo -n ' --component' $c; done )" >> $GITHUB_OUTPUT
+      shell: bash
+
+      # Spurious failures for rustup:
+      #   info: update not yet available, sorry! try again later
+      #   error: toolchain 'nightly-x86_64-unknown-linux-gnu' is not installable
+    - name: "Rustup"
+      run: |
+        $RETRY rustup toolchain install ${{ inputs.rust }} --profile minimal --no-self-update ${{ steps.configure.outputs.components }}
+        rustup default ${{ inputs.rust }}
+      shell: bash
+
+    - name: "Extract Rust version"
+      # Transforms into format "1.78.0-stable" or "1.80.0-nightly-d2d24e395", which can be used as cache key.
+      run: |
+        version=$(rustc --version)
+        if echo "$version" | grep -q "nightly"; then
+          version=$(echo "$version" | sed -E 's/rustc ([0-9]+\.[0-9]+\.[0-9]+)-nightly \(([a-f0-9]+) .*/\1-nightly-\2/')
+        else
+          version=$(echo "$version" | sed -E 's/rustc ([0-9]+\.[0-9]+\.[0-9]+) .*/\1-stable/')
+        fi
+        echo "INSTALLED_RUST_VERSION=$version" >> $GITHUB_ENV
+      shell: bash
+
+    - name: "Reuse cached dependencies"
+      uses: Swatinem/rust-cache@v2
+      with:
+        # A cache key that is used instead of the automatic `job`-based key, and is stable over multiple jobs.
+        # default: empty
+        shared-key: "${{ runner.os }}-${{ env.INSTALLED_RUST_VERSION }}${{ inputs.cache-key }}"
+
+        # An additional cache key that is added alongside the automatic `job`-based
+        # cache key and can be used to further differentiate jobs.
+        # default: empty
+        #key: ${{ inputs.cache-key }}
+
+        # Determines if the cache should be saved even when the workflow has failed.
+        # default: "false"
+        cache-on-failure: true
+
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        #prefix-key: "v1-rust"
+
+        # Determines which crates are cached.
+        # If `true` all crates will be cached, otherwise only dependent crates will be cached.
+        # Useful if additional crates are used for CI tooling.
+        # default: "false"
+        #cache-all-crates: true
+
+    - name: "Install LLVM"
+      if: inputs.with-llvm == 'true'
+      uses: ./.github/composite/llvm
+
+    - name: "Set environment variables used by toolchain"
+      run: |
+        echo CARGO_TERM_COLOR=always >> $GITHUB_ENV
+        echo CARGO_INCREMENTAL=0 >> $GITHUB_ENV
+        echo RUST_BACKTRACE=1 >> $GITHUB_ENV
+        
+        rustc --version --verbose
+      shell: bash

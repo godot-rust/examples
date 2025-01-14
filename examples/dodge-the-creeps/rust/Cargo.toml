@@ -1,0 +1,16 @@
+[package]
+name = "dodge-the-creeps"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rand = "0.8"
+godot = { git = "https://github.com/godot-rust/gdext.git" }
+# for Wasm, add: features = ["experimental-wasm"]
+
