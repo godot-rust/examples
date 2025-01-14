@@ -11,4 +11,5 @@ config_version=5
 [application]
 
 config/name="hot-reload"
-config/features=PackedStringArray("4.3", "Forward Plus")
+run/main_scene="uid://da7eiv1notj7j"
+config/features=PackedStringArray("4.4", "Forward Plus")
