@@ -60,3 +60,4 @@ if grep --quiet "ERROR:" "$logfile"; then
 fi
 
 echo "$PRE Example ran successfully."
+echo ""

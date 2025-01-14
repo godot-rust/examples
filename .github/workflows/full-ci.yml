@@ -11,21 +11,26 @@ on:
   # Allow manually triggering the workflow:
   # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#workflow_dispatch
   workflow_dispatch:
+  # Still have merge group, to ensure checks are additionally run at the time of merge, not just last commit.
+  # This can sometimes detect issues when behavior in Godot/godot-rust changed in the meantime. Also, little traffic expected on this repo.
   merge_group:
-#  push:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - master
 
 
 env:
   # Applies to all 'register-docs' features across crates.
-  CLIPPY_FEATURES: '--features register-docs,godot/experimental-godot-api,godot/serde'
+  CLIPPY_FEATURES: '--features godot/register-docs,godot/experimental-godot-api,godot/serde'
   TEST_FEATURES: ''
   RETRY: ${{ github.workspace }}/.github/other/retry.sh
-
-  # ASan options: https://github.com/google/sanitizers/wiki/AddressSanitizerFlags
-  # LSan options: https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer
-  # * report_objects: list individual leaked objects when running LeakSanitizer
-  LSAN_OPTIONS: report_objects=1
-
   CARGO_DENY_VERSION: "0.16.1"
   CARGO_MACHETE_VERSION: "0.7.0"
 
@@ -40,7 +45,6 @@ defaults:
 #  cancel-in-progress: true
 
 jobs:
-  # Keep all in sync with minimal-ci and release-version.
   rustfmt:
     runs-on: ubuntu-22.04
     steps:
@@ -54,47 +58,11 @@ jobs:
       - name: "Check rustfmt"
         run: cargo fmt --all -- --check
 
-      - name: "Run custom repo checks"
-        run: |
-          cargo run -p repo-tweak
-          git diff --quiet --exit-code || {
-            echo "::error::Godot versions out of sync; update with `cargo run -p repo-tweak`."
-            echo "Differences:"
-            echo "----------------------------------------------------"
-            git diff
-            echo "----------------------------------------------------"
-            exit 1
-          }
-
-
-  # Needs to be its own job (apart from sync-doc), because lints don't work with --no-deps, and because it contributes to ci-status.
-  doc-lints:
-    runs-on: ubuntu-22.04
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: "Patch Cargo.toml to use nightly extension API"
-      run: .github/other/patch-prebuilt.sh nightly
-
-    # rustdoc is included as component.
-    - name: "Install Rust"
-      uses: ./.github/composite/rust
-
-    - name: "Check rustdoc"
-      env:
-        RUSTDOCFLAGS: >
-          -D rustdoc::broken-intra-doc-links -D rustdoc::private-intra-doc-links -D rustdoc::invalid-codeblock-attributes 
-          -D rustdoc::invalid-rust-codeblocks -D rustdoc::invalid-html-tags -D rustdoc::bare-urls -D rustdoc::unescaped-backticks
-      run: cargo doc -p godot --ignore-rust-version
-
 
   clippy:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: "Patch Cargo.toml to use nightly extension API"
-        run: .github/other/patch-prebuilt.sh nightly
 
       - name: "Install Rust"
         uses: ./.github/composite/rust
@@ -114,6 +82,7 @@ jobs:
           -D clippy::unimplemented \
           -D warnings
 
+
   unit-test:
     name: unit-test (${{ matrix.name }}${{ matrix.rust-special }})
     runs-on: ${{ matrix.os }}
@@ -125,16 +94,14 @@ jobs:
         # Additionally, the 'linux (msrv *)' special case will then be listed next to the other 'linux' jobs.
         # Note: Windows uses '--target x86_64-pc-windows-msvc' by default as Cargo argument.
         include:
-          - name: macos
-            os: macos-latest # arm64
-
-          - name: windows
-            os: windows-latest
-
-          # Don't use latest Ubuntu (22.04) as it breaks lots of ecosystem compatibility.
-          # If ever moving to ubuntu-latest, need to manually install libtinfo5 for LLVM.
-          - name: linux
-            os: ubuntu-22.04
+#           - name: macos
+#             os: macos-latest # arm64
+#
+#           - name: windows
+#             os: windows-latest
+#
+#           - name: linux
+#             os: ubuntu-22.04
 
           - name: linux
             os: ubuntu-22.04
@@ -172,111 +139,24 @@ jobs:
         run: cargo test $TEST_FEATURES ${{ matrix.rust-extra-args }}
 
 
-  miri-test:
-    name: miri-test
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: "Install Rust"
-        uses: ./.github/composite/rust
-        with:
-          rust: nightly
-          components: miri
-      
-      - name: "Setup Miri"
-        run: cargo miri setup
-
-      - name: "Compile tests"
-        run: cargo miri test -p godot-cell --no-run
-
-      - name: "Test stacked borrows"
-        run: cargo miri test -p godot-cell
-      
-      - name: "Test tree borrows"
-        run: MIRIFLAGS="-Zmiri-tree-borrows" cargo miri test -p godot-cell
-
-  proptest:
-    name: proptest
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: "Install Rust"
-        uses: ./.github/composite/rust
-
-      - name: "Compile tests"
-        run: cargo test -p godot-cell --features="proptest" --no-run
-
-      - name: "Test"
-        run: cargo test -p godot-cell --features="proptest"
-
-  # For complex matrix workflow, see https://stackoverflow.com/a/65434401
-  godot-itest:
-    name: godot-itest (${{ matrix.name }})
+  run-examples:
+    name: run-examples (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: false
-    timeout-minutes: 24
     strategy:
       fail-fast: false # cancel all jobs as soon as one fails?
       matrix:
-        # Naming: {os}[-{runtimeVersion}]-{apiVersion}
-        # runtimeVersion = version of Godot binary; apiVersion = version of GDExtension API against which gdext is compiled.
-
-        # Config overview (see job for details).
-        #
-        # Cross-platform:
-        # - Base version:     Godot nightly, no custom
-        # - Double precision: Godot nightly, custom (bindgen), double
-        # - 4.2 compat:       Godot 4.2
-        #
-        # Linux-only:
-        # - Full:             Godot nightly, full codegen
-        # - Double + lazy:    Godot nightly, custom, double, lazy func tables
-        # - Features + exp:   Godot nightly, custom, threads, serde, experimental API
-        # - Memcheck nightly: Godot mem nightly, custom, sanitizer
-        # - Memcheck 4.x:     Godot mem 4.0/4.1, sanitizer
-
-        # Note: Windows uses '--target x86_64-pc-windows-msvc' by default as Cargo argument.
         include:
-          # macOS -- for the unintuitive naming, see https://github.com/actions/runner-images?tab=readme-ov-file#available-images
+          # macOS
 
           - name: macos-x86
             os: macos-13
             artifact-name: macos-x86-nightly
             godot-binary: godot.macos.editor.dev.x86_64
-            with-hot-reload: true
-
-          - name: macos-double-x86
-            os: macos-13
-            artifact-name: macos-double-x86-nightly
-            godot-binary: godot.macos.editor.dev.double.x86_64
-            rust-extra-args: --features godot/api-custom,godot/double-precision
-
-          - name: macos-x86-4.2
-            os: macos-13
-            artifact-name: macos-x86-4.2
-            godot-binary: godot.macos.editor.dev.x86_64
-            godot-prebuilt-patch: '4.2.2'
 
           - name: macos-arm
             os: macos-latest
             artifact-name: macos-arm-nightly
             godot-binary: godot.macos.editor.dev.arm64
-            with-hot-reload: true
-
-           # api-custom on macOS arm64 not working, due to clang linker issues.
-#          - name: macos-double-arm
-#            os: macos-latest
-#            artifact-name: macos-double-arm-nightly
-#            godot-binary: godot.macos.editor.dev.double.arm64
-#            rust-extra-args: --features godot/api-custom,godot/double-precision
-
-          - name: macos-arm-4.2
-            os: macos-latest
-            artifact-name: macos-arm-4.2
-            godot-binary: godot.macos.editor.dev.arm64
-            godot-prebuilt-patch: '4.2.2'
 
           # Windows
 
@@ -284,147 +164,66 @@ jobs:
             os: windows-latest
             artifact-name: windows-nightly
             godot-binary: godot.windows.editor.dev.x86_64.exe
-            with-hot-reload: true
 
+          # On Windows (only), test double precision.
           - name: windows-double
             os: windows-latest
             artifact-name: windows-double-nightly
             godot-binary: godot.windows.editor.dev.double.x86_64.exe
             rust-extra-args: --features godot/api-custom,godot/double-precision
 
-          - name: windows-4.2
-            os: windows-latest
-            artifact-name: windows-4.2
-            godot-binary: godot.windows.editor.dev.x86_64.exe
-            godot-prebuilt-patch: '4.2.2'
-
-#          - name: windows-4.1
-#            os: windows-latest
-#            artifact-name: windows-4.1
-#            godot-binary: godot.windows.editor.dev.x86_64.exe
-#            godot-prebuilt-patch: '4.1.3'
-
           # Linux
 
-          # Don't use latest Ubuntu (22.04) as it breaks lots of ecosystem compatibility.
-          # If ever moving to ubuntu-latest, need to manually install libtinfo5 for LLVM.
-
-          # Uses full+experimental codegen, so that compatibility breakage towards nightly is detected.
-          # If the experimental part causes problems, consider using only godot/__codegen-full.
-          - name: linux-full
+          - name: linux
             os: ubuntu-22.04
             artifact-name: linux-nightly
             godot-binary: godot.linuxbsd.editor.dev.x86_64
-            rust-extra-args: --features itest/codegen-full
-            with-hot-reload: true
-
-          # Combines now a lot of features, but should be OK. lazy-function-tables doesn't work with experimental-threads.
-          - name: linux-double-lazy
-            os: ubuntu-22.04
-            artifact-name: linux-double-nightly
-            godot-binary: godot.linuxbsd.editor.dev.double.x86_64
-            rust-extra-args: --features godot/api-custom,godot/double-precision,itest/codegen-full,godot/lazy-function-tables
-
-          - name: linux-features-experimental
-            os: ubuntu-22.04
-            artifact-name: linux-nightly
-            godot-binary: godot.linuxbsd.editor.dev.x86_64
-            rust-extra-args: --features itest/experimental-threads,itest/codegen-full-experimental,godot/api-custom,godot/serde,itest/register-docs
-
-          - name: linux-release
-            os: ubuntu-22.04
-            artifact-name: linux-release-nightly
-            godot-binary: godot.linuxbsd.template_release.x86_64
-            rust-extra-args: --release
-            rust-cache-key: release
-
-          # Linux compat (4.1 disabled, already covered by memcheck)
 
           - name: linux-4.3
             os: ubuntu-22.04
             artifact-name: linux-4.3
             godot-binary: godot.linuxbsd.editor.dev.x86_64
-            #godot-prebuilt-patch: '4.3.x'
 
           - name: linux-4.2
             os: ubuntu-22.04
             artifact-name: linux-4.2
             godot-binary: godot.linuxbsd.editor.dev.x86_64
-            godot-prebuilt-patch: '4.2.2'
 
-          # Memory checks: special Godot binaries compiled with AddressSanitizer/LeakSanitizer to detect UB/leaks.
-          # See also https://rustc-dev-guide.rust-lang.org/sanitizers.html.
-          #
-          # Additionally, the Godot source is patched to make dlclose() a no-op, as unloading dynamic libraries loses stacktrace and
-          # cause false positives like println!. See https://github.com/google/sanitizers/issues/89.
-          #
-          # There is also a gcc variant besides clang, which is currently not used.
-          - name: linux-memcheck-nightly
+          - name: linux-4.1
             os: ubuntu-22.04
-            artifact-name: linux-memcheck-nightly
-            godot-binary: godot.linuxbsd.editor.dev.x86_64.llvm.san
-            rust-toolchain: nightly
-            rust-env-rustflags: -Zrandomize-layout -Zsanitizer=address
-            rust-extra-args: --features godot/api-custom
-            # Sanitizers can't build proc-macros and build scripts; with --target, cargo ignores RUSTFLAGS for those two.
-            rust-target: x86_64-unknown-linux-gnu
+            artifact-name: linux-4.1
+            godot-binary: godot.linuxbsd.editor.dev.x86_64
 
-          - name: linux-memcheck-4.1
-            os: ubuntu-22.04
-            artifact-name: linux-memcheck-4.1
-            godot-binary: godot.linuxbsd.editor.dev.x86_64.llvm.san
-            godot-prebuilt-patch: '4.1' # check compat of API 4.1.0 with newer binaries.
-            rust-toolchain: nightly
-            rust-env-rustflags: -Zrandomize-layout -Zsanitizer=address
-            # Sanitizers can't build proc-macros and build scripts; with --target, cargo ignores RUSTFLAGS for those two.
-            rust-target: x86_64-unknown-linux-gnu
+          # Do not run memchecks; increases CI complexity too much with the patching and everything.
+          # Such cases need to be tested in the itest suite in the main repo.
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Run Godot integration test"
-        uses: ./.github/composite/godot-itest
+      # macOS: needed for 'timeout' command in check script.
+      - name: "Install coreutils (macOS)"
+		if: ${{ contains(matrix.name, 'macos') }}
+		run: brew install coreutils
+
+      - name: "Install Godot"
+        uses: ./.github/composite/godot-install
         with:
-          artifact-name: godot-${{ matrix.artifact-name }}
-          godot-binary: ${{ matrix.godot-binary }}
-          godot-args: ${{ matrix.godot-args }} # currently unused
-          godot-prebuilt-patch: ${{ matrix.godot-prebuilt-patch }}
-          rust-extra-args: ${{ matrix.rust-extra-args }}
-          rust-toolchain: ${{ matrix.rust-toolchain || 'stable' }}
-          rust-env-rustflags: ${{ matrix.rust-env-rustflags }}
-          rust-target: ${{ matrix.rust-target }}
-          rust-cache-key: ${{ matrix.rust-cache-key }}
-          with-llvm: ${{ contains(matrix.name, 'macos') && contains(matrix.rust-extra-args, 'api-custom') }}
-          godot-check-header: ${{ matrix.godot-check-header }}
-          
-      - name: "Build and test hot-reload"
-        if: ${{ matrix.with-hot-reload }}
-        working-directory: examples/hot-reload/godot/test
-        # Repeat a few times, our hot reload integration test can sometimes be a bit flaky.
-        run: $RETRY ./run-test.sh
-        shell: bash
-
-
-  run-examples:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
+          artifact-name: 'godot-${{ matrix.artifact-name }}'
+          godot-binary: '${{ matrix.godot-binary }}'
 
       - name: "Install Rust"
         uses: ./.github/composite/rust
 
       # First compile, to fail early in case of compilation errors.
-      - name: "Compile Rust examples (release mode)"
-        run: cargo build --release -p dodge-the-creeps
-
-      - name: "Install Godot"
-        uses: ./.github/composite/godot-install
-        with:
-          artifact-name: godot-linux-4.3
-          godot-binary: godot.linuxbsd.editor.dev.x86_64
+      - name: "Compile Rust examples (Release mode)"
+        run: cargo build --release ${{ matrix.rust-extra-args }}
 
       - name: "Run examples for short time"
-        run: ./.github/other/check-example.sh dodge-the-creeps
+        run: |
+           # List all folders in './example' directory
+           for example in $(ls examples); do
+               ./.github/other/check-example.sh "$example"
+           done
 
 
   cargo-deny-machete:
@@ -478,12 +277,8 @@ jobs:
     if: always() && github.event_name == 'merge_group'
     needs:
       - rustfmt
-      - doc-lints
       - clippy
       - unit-test
-      - miri-test
-      - proptest
-      - godot-itest
       - run-examples
       - cargo-deny-machete
       - license-guard
