@@ -202,8 +202,8 @@ jobs:
 
       # macOS: needed for 'timeout' command in check script.
       - name: "Install coreutils (macOS)"
-		if: ${{ contains(matrix.name, 'macos') }}
-		run: brew install coreutils
+        if: contains(matrix.name, 'macos')
+        run: brew install coreutils
 
       - name: "Install Godot"
         uses: ./.github/composite/godot-install
