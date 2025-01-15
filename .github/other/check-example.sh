@@ -23,6 +23,7 @@ fi
 PRE="# EXAMPLE $example |"
 dir="examples/$example/godot"
 logfile="stderr-$example.log"
+# stdout also outputs some "ERROR:" messages, these are currently ignored.
 
 # In .gdextension file, use paths to release artifacts.
 sed -i'.bak' "s!/debug/!/release/!g" "$dir/rust.gdextension"
