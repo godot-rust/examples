@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-name: Full CI
+name: Demo CI
 #
 # Runs before merging. Rebases on master to make sure CI passes for latest integration, not only for the PR at the time of creation.
 
@@ -24,7 +24,10 @@ on:
   push:
     branches:
       - master
-
+  # Periodic: if we break stuff, we notice within one day.
+  # Run at 03:47 UTC each morning
+  schedule:
+    - cron: "47 3 * * *"
 
 env:
   # Applies to all 'register-docs' features across crates.
@@ -266,7 +269,8 @@ jobs:
   # Job to notify merge queue about success/failure
   ci-status:
     # Check for 'merge_group' not strictly necessary, but helpful when adding add-hoc `push:` trigger to `on:` for testing branch.
-    if: always() && github.event_name == 'merge_group'
+    #if: always() && github.event_name == 'merge_group'
+    if: always()
     needs:
       - rustfmt
       - clippy

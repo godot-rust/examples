@@ -12,7 +12,7 @@ Demo projects do not replace the book and API docs, but are meant to be read in 
 code that seem strange, please check both book and docs first!
 
 
-## Current demos
+## Rust demos
 
 We currently feature the following demo projects:
 
@@ -23,14 +23,16 @@ We currently feature the following demo projects:
   Showcases how classes and their state can be hot-reloaded in the Godot editor.
 
 
-## Godot version
+## Engine and library versions
 
-Demos are written to work with **latest stable** Godot version. When a new minor/patch version is released, we generally try to update it
-within a few days or weeks.
+Demos are written to work with **latest stable** Godot version (last official release), and last `master` version of godot-rust.
+We generally try to update this repo within a few days or weeks.
 
 We additionally run CI with newer in-dev versions, but that support is best-effort. Demos do not provide compatibility with older Godot
 versions, as the projects need migration and this would prevent us from showcasing newer versions. godot-rust itself however offers reliable
 support for older versions, see [Compatibility and Stability][book-compatibility].
+
+If you're interested in GDScript demos for Godot itself, check out [godot-demo-projects].
 
 
 ## Contributions
@@ -42,6 +44,7 @@ documentation and maintainability. But don't worry, if you open an issue, we can
 
 Like the library, all contributions are subject to the [Mozilla Public License 2.0][mpl].
 
+
 [Main repo]: https://github.com/godot-rust/gdext
 [API Docs]: https://godot-rust.github.io/docs/gdext
 [Sponsor]: https://github.com/sponsors/Bromeon
@@ -49,3 +52,4 @@ Like the library, all contributions are subject to the [Mozilla Public License 2
 [Book]: https://godot-rust.github.io/book
 [mpl]: https://www.mozilla.org/en-US/MPL
 [book-compatibility]: https://godot-rust.github.io/book/toolchain/compatibility.html
+[godot-demo-projects]: https://github.com/godotengine/godot-demo-projects
