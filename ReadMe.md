@@ -1,43 +1,43 @@
 ![logo.png](https://github.com/godot-rust/assets/blob/master/gdext/banner.png?raw=true)
 
-# Example projects for godot-rust
+# Demo projects for godot-rust
 
 _**[Website]** | **[Main repo]** |  [Book] | [API Docs] | [Sponsor]_
 
-This repository collects official examples for the **[gdext][Main repo]** library. There are few examples at the moment, and we don't
-intend to showcase every aspect of the library here. Instead, examples are designed to be more "real-world" oriented, while
-keeping in mind a small scope that is approachable.
+This repository collects official demos and examples for the **[gdext][Main repo]** library. There are few demos at the moment, and we don't
+intend to showcase every aspect of the library here. Instead, demos are designed to be more "real-world" oriented, without getting so big
+that readers are overhwelmed.
 
-Examples do not replace the book and API docs, but are meant to be read in addition. If you're encountering concepts in the
+Demo projects do not replace the book and API docs, but are meant to be read in addition. If you're encountering concepts in the
 code that seem strange, please check both book and docs first!
 
 
-## Current examples
+## Current demos
 
-We currently feature the following example projects:
+We currently feature the following demo projects:
 
-- [**Dodge the Creeps**](examples/dodge-the-creeps)  
+- [**Dodge the Creeps**](dodge-the-creeps)  
   A simple game where you dodge enemies. Ported from the official Godot tutorial.
 
-- [**Hot reload**](examples/hot-reload)  
+- [**Hot reload**](hot-reload)  
   Showcases how classes and their state can be hot-reloaded in the Godot editor.
 
 
 ## Godot version
 
-Examples are written to work with **latest stable** Godot version. When a new minor/patch version is released, we generally try to update it
+Demos are written to work with **latest stable** Godot version. When a new minor/patch version is released, we generally try to update it
 within a few days or weeks.
 
-We additionally run CI with newer in-dev versions, but that support is best-effort. Examples do not provide compatibility with older Godot
-versions, as the projects need migration and this would prevent us from showcasing newer versions. godot-rust itself however offers support
-for older versions, see [Compatibility and Stability][book-compatibility].
+We additionally run CI with newer in-dev versions, but that support is best-effort. Demos do not provide compatibility with older Godot
+versions, as the projects need migration and this would prevent us from showcasing newer versions. godot-rust itself however offers reliable
+support for older versions, see [Compatibility and Stability][book-compatibility].
 
 
 ## Contributions
 
-If you would like to contribute an example, please open an issue **before** submitting a big pull request.
+If you would like to contribute a demo project, please open an issue **before** submitting a big pull request.
 Keep in mind that this repo is not a collection of user projects, but an educational resource to complement
-the book and API docs of the library. Therefore, examples need to follow certain standards regarding code quality,
+the book and API docs of the library. Therefore, demos need to follow certain standards regarding code quality,
 documentation and maintainability. But don't worry, if you open an issue, we can guide you through! 🙂
 
 Like the library, all contributions are subject to the [Mozilla Public License 2.0][mpl].
@@ -49,4 +49,3 @@ Like the library, all contributions are subject to the [Mozilla Public License 2
 [Book]: https://godot-rust.github.io/book
 [mpl]: https://www.mozilla.org/en-US/MPL
 [book-compatibility]: https://godot-rust.github.io/book/toolchain/compatibility.html
-```
