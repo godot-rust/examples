@@ -12,7 +12,7 @@ set -euo pipefail
 # Opening in editor can take a while (import reosurces, load extensions for the first time, ...).
 # Unlike EXAMPLE_TIMEOUT, this is an upper bound, after which CI job fails, so not the entire time is necessarily spent.
 EXAMPLE_TIMEOUT=5
-EDITOR_TIMEOUT=30 # already encountered 20s on macOS CI.
+EDITOR_TIMEOUT=60 # already encountered 20s on macOS CI.
 
 example="$1"
 if [ -z "$example" ]; then

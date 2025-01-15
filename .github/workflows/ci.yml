@@ -177,23 +177,16 @@ jobs:
             artifact-name: linux-4.3
             godot-binary: godot.linuxbsd.editor.dev.x86_64
 
-          - name: linux-4.2
-            os: ubuntu-22.04
-            artifact-name: linux-4.2
-            godot-binary: godot.linuxbsd.editor.dev.x86_64
-            rust-extra-args: --features godot/api-4.2
-
-          - name: linux-4.1
-            os: ubuntu-22.04
-            artifact-name: linux-4.1
-            godot-binary: godot.linuxbsd.editor.dev.x86_64
-            rust-extra-args: --features godot/api-4.1
-
-          # Do not run memchecks; increases CI complexity too much with the patching and everything.
-          # Such cases need to be tested in the itest suite in the main repo.
-
-          # Also don't test double precision. Makes a lot of code more difficult to write (real conversions etc), missing
-          # the point of examples being approachable. Users who need it are trusted to adjust code based on compile errors.
+          # Deliberately don't include:
+          #
+          # * Memchecks: increases CI complexity too much with the patching and everything.
+          #   Such cases need to be tested in the itest suite in the main repo.
+          #
+          # * Double precision. Makes a lot of code more difficult to write (real conversions etc), missing the point of examples
+          #   being approachable. Users who need it are trusted to adjust code based on compile errors.
+          #
+          # * Godot versions older than latest stable: require "least common denominator" compromises, not being able to showcase new features.
+          #   Also, opening projects in newer editor versions frequently causes warnings.
 
 
     steps:

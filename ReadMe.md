@@ -23,6 +23,16 @@ We currently feature the following example projects:
   Showcases how classes and their state can be hot-reloaded in the Godot editor.
 
 
+## Godot version
+
+Examples are written to work with **latest stable** Godot version. When a new minor/patch version is released, we generally try to update it
+within a few days or weeks.
+
+We additionally run CI with newer in-dev versions, but that support is best-effort. Examples do not provide compatibility with older Godot
+versions, as the projects need migration and this would prevent us from showcasing newer versions. godot-rust itself however offers support
+for older versions, see [Compatibility and Stability][book-compatibility].
+
+
 ## Contributions
 
 If you would like to contribute an example, please open an issue **before** submitting a big pull request.
@@ -38,3 +48,5 @@ Like the library, all contributions are subject to the [Mozilla Public License 2
 [Website]: https://godot-rust.github.io
 [Book]: https://godot-rust.github.io/book
 [mpl]: https://www.mozilla.org/en-US/MPL
+[book-compatibility]: https://godot-rust.github.io/book/toolchain/compatibility.html
+```
